@@ -1,4 +1,11 @@
 /***** Class *****/
+/*
+ * Opcode
+ * ProgramCounter
+ * VRegister
+ * Memory
+ * Timer
+ */
 class Opcode {
   constructor (opcode) {
     this.v = opcode
@@ -190,6 +197,28 @@ class Memory {
   }
 }
 
+class Timer {
+  constructor () {
+    this.max = 0xFF
+    this.v = this.max
+  }
+
+  assign (v) {
+    if (v > this.max) {
+      throw new Error('The assigned number is so large.')
+    }
+    this.v = v
+  }
+  
+  down () {
+    this.v--
+  }
+
+  notZero () {
+    return this.v > 0
+  }
+}
+
 /***** Defination *****/
 
 // 一个地址对应一个字节
@@ -198,6 +227,8 @@ const V = new Array(16)
 V.forEach((e, i) => {
   V[i] = new VRegister()
 })
+
+// 16-bit
 let I = 0
 let PC = new ProgramCounter()
 
@@ -215,8 +246,8 @@ let PC = new ProgramCounter()
  */
 const GFX = new Array(2048)
 
-let D_Timer = 0
-let S_Timer = 0
+let D_Timer = new Timer()
+let S_Timer = new Timer()
 
 /*
  * 调用子函数之前将PC当前值推入栈
@@ -238,20 +269,20 @@ function cycle() {
 
 function updateTimers(): Opcode
 function updateTimers() {
-  if (D_Timer > 0) {
-    D_Timer--
+  if (D_Timer.notZero()) {
+    D_Timer.down()
   }
-  if (S_Timer > 0) {
-    if (S_Timer === 1) {
+  if (S_Timer.notZero()) {
+    if (S_Timer.v === 1) {
       console.log('BEEP!')
     }
-    S_Timer--
+    S_Timer.down()
   }
 }
 
 function readOpcodeFromMem () {
   let opcode = MEM[PC] << 8 | MEM[PC + 1]
-  return { v: opcode } as Opcode
+  return new Opcode(opcode)
 }
 
 
@@ -273,69 +304,55 @@ function executeOpcode (opcode) {
       if (o.v == 0x00E0) {
         // clears the screen
       } else if (o.v == 0x00EE) {
-        // returns from a subroutine
         PC.recover()
       } else {
-        // call RCA 1802 program at address NNN. not necessary for most ROMs
         PC.store()
         PC.assign(nnn)
       }
       break
     case: 1:
-      // jumps to address NNN
       PC.assign(nnn)
       break
     case: 2:
-      // calls subroutine at NNN
       PC.store()
       PC.assign(nnn)
       break
     case: 3:
-      // skips the next instruction if VX equals NN
       if (V[x].eq(nn)) {
         PC.nextOpcode()
       }
       break
     case: 4:
-      // skips the next instruction if VX doesn't equal NN
       if (! V[x].eq(nn)) {
         PC.nextOpcode()
       }
       break
     case: 5:
-      // skips the next instruction if VX equals VY
       if (V[x].eq(V[y])) {
         PC.nextOpcode()
       }
       break
     case: 6:
-      // sets VX to NN
       V[x].assign(nn)
       break
     case: 7:
-      // adds NN to VX (carry flag is not changed)
       V[x].add(nn)
       break
     case: 8:
       switch(zero) {
         case 0:
-          // sets VX to the value of VY
           V[x].assign(V[y])
           break
         case 1:
-          // sets VX to VX or VY (bitwise OR operation)
           V[x].bitOp('|', V[y])
           break
         case 2:
-          // sets VX to VX and VY
           V[x].bitOp('&', V[y])
           break
         case 3:
-          // sets VX to VX xor VY
           V[x].bitOp('^', V[y])
           break
         case 4:
-          // adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't 
           let carry = V[x].add(V[y])
           if (carry) {
             V[0xF].assign(1)
@@ -344,7 +361,6 @@ function executeOpcode (opcode) {
           }
           break
         case 5:
-          // VY is subtracted from VX. VF is set to 0 when there's a borrow, and 1 when there isn't
           let borrow = V[x].sub(V[y])
           if (borrow) {
             V[0xF].assign(0)
@@ -353,13 +369,11 @@ function executeOpcode (opcode) {
           }
           break
         case 6:
-          // shifts VY right by one and copies the result to VX. VF is set to the value of the least significant bit of VY before the shift
           V[0xF].assign(V[y].getLSBit())
           V[y].bitOp('>>', 1)
           V[x].assign(V[y])
           break
         case 7:
-          // set VX to VY minus VX. VF is set to 0 when there's a borrow, and 1 when there isn't
           let borrow = V[x].resub(V[y])
           if (borrow) {
             V[0xF].assign(0)
@@ -368,29 +382,26 @@ function executeOpcode (opcode) {
           }
           break
         case 0xE:
-          // shifts VY left by one and copies the result to VX. VF is set to the value of the most significant bit of VY before the shift
           V[0xF].assing(V[y].getMSBit())
           V[y].bitOp('<<', 1)
           V[x].assing(V[y])
           break
+        default:
+          throw new Error('Unknow opcode: ' + o.v)
       }
       break
     case: 9:
-      // skips the next instruction if VX doesn't equal VY (usually the next instruction is a jump to skip a code block)
       if (!V[x].eq(V[y])) {
         PC.nextOpcode()
       }
       break
     case 0xA:
-      // sets I to the address NNN
       I = nnn
       break
     case 0xB:
-      // jumps to the address NNN plus V0
       PC.assign(nnn + V[0].v)
       break
     case 0xC:
-      // sets VX to the result of a bitwise and operation on a random number (typically 0 to 255) and NN
       V[x].assign(rand() & nn)
       break
     case 0xD:
@@ -407,22 +418,18 @@ function executeOpcode (opcode) {
       const firstTwo = o.getFristNDigits(2)
       switch (firstTwo) {
         case 0x07:
-          // sets VX to the value of the delay timer
-          V[x].assign(D_Timer)
+          V[x].assign(D_Timer.v)
           break
         case 0x0A:
           // a key press is awaited, and then stored in VX (blocking operation. all instruction halted until next key event)
           break
         case 0x15:
-          // sets the delay timer to VX
-          D_Timer = V[x].v
+          D_Timer.assign(V[x].v)
           break
         case 0x18:
-          // sets the sound timer to VX
-          S_Timer = V[x].v
+          S_Timer.assign(V[x].v)
           break
         case 0x1E:
-          // adds VX to I
           I += V[x].v
           break
         case 0x29:
@@ -430,13 +437,24 @@ function executeOpcode (opcode) {
           I = spriteAddr[V[x].v]
           break
         case 0x33:
-          // stores the binary-coded decimal representation of VX, with the most significant of three digits at the address in I, the middle digit at I plus 1, and the least significant digit at I plus 2. (in other wors, take the decimal representation of VX, place the hundreds digit in memory at location in I, the tens digit at location I + 1, and the ones digit at location I + 2)
+          let bcd = getBCD(V[x].v)
+          MEM.write(I, bcd)
           break
         case 0x55:
-          // stores V0 to VX (including VX) in memory starting at address I. I is increased by 1 for each value written
+          let v = new Array(x + 1)
+          v.forEach((e, i) => {
+            v[i] = V[i].v
+          })
+          MEM.write(I, v)
           break
         case 0x65:
-          // fills V0 to VX (including VX) with values from memory starting at address I. I is increasedby 1 for each value written
+          let v = MEM.dump(I, x + 1)
+          v.forEach((e, i) => {
+            V[i].assign(e)
+          })
+          break
+        default:
+          throw new Error('Unknow opcode: ' + o.v)
       }
     default: 
       throw new Error('Unknow opcode: ' + o.v)
@@ -444,7 +462,22 @@ function executeOpcode (opcode) {
 }
 
 /***** Function *****/
+/*
+ * rand
+ * getBCD
+ */
 function rand() {
   const max = 255
   return parseInt(Math.random() * max)
+}
+
+function getBCD (num) {
+  if (num > 999) {
+     throw new Error('Supported digits of number lower than 3.')
+  }
+  let high = Math.floor(num / 100)
+  let mid = Math.floor(num / 10) % 10
+  let low = num % 10
+
+  return [high, mid, low]
 }
