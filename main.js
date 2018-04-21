@@ -13,7 +13,7 @@ class Opcode {
   // index: from 0 to 3
   // @param index: number
   // @return number
-  function getSpecificedDigit (index) {
+  getSpecificedDigit (index) {
     if (index > 3 || index < 0) {
       throw new Error('Required index of specificed digit must from 0 to 3.')
     }
@@ -26,7 +26,7 @@ class Opcode {
   // index: from 1 to 3
   // @param index: number
   // @return number
-  function getFristNDigits (index) {
+  getFristNDigits (index) {
     const base = 4 * 4
     const num = base - index * 4
     return (this.v << num) >>> num
@@ -44,33 +44,33 @@ class ProgramCounter {
     return this.v
   }
 
-  function nextOpcode () {
+  nextOpcode () {
     this.next()
     this.next()
     return this.v
   }
 
-  function next () {
+  next () {
     this.v += 1
     return this.v
   }
 
-  function skipAnOpcode () {
+  skipAnOpcode () {
     this.nextOpcode()
     this.nextOpcode()
     return this.v
   }
 
-  function recover () {
+  recover () {
     this.v = STACK.pop()
     return this.v
   }
 
-  function store () {
+  store () {
     STACK.push(this.v)
   }
 
-  function assign (v) {
+  assign (v) {
     this.v = v
   }
 }
@@ -219,6 +219,35 @@ class Timer {
   }
 }
 
+class GFX {
+  /*
+ * 显存
+ * 64 * 32 (2048px)
+ * 0 black
+ * 1 white
+ */
+  constructor () {
+    this.d = new Array(2048)
+  }
+
+  draw (Vx, Vy, N) {
+  }
+}
+
+class Key {
+  constructor () {
+    this.all = new Array(16)
+    this.all.forEach((e, i) => {
+      this.all[i] = i
+    })
+    this.curKey = null
+  }
+
+  press (keyNum) {
+    this.curKey = this.all[keyNum]
+  }
+}
+
 /***** Defination *****/
 
 // 一个地址对应一个字节
@@ -238,13 +267,7 @@ let PC = new ProgramCounter()
  * 0x050 - 0x0A0 用于生成4*5像素的字体集合（0 - F）
  * 0x200 - 0xFFF 游戏ROM与工作ROM
  */ 
-  /*
- * 显存
- * 64 * 32 (2048px)
- * 0 black
- * 1 white
- */
-const GFX = new Array(2048)
+const Display = new GFX()
 
 let D_Timer = new Timer()
 let S_Timer = new Timer()
@@ -258,16 +281,24 @@ const STACK = new Array(16)
 const SP = 0
 
 // 键盘状态
-const KEY = new Array(16)
+const KEY = new Key()
 
 function cycle() {
+
+  const T = 10
+  setCycle()
   // get opcode
   // decode opcode
   // execute opcode
   // update counter
 }
 
-function updateTimers(): Opcode
+function setCycle (f, T) {
+  return setTimeout (() => {
+    f(setCycle(f, T))
+  }, T)
+}
+
 function updateTimers() {
   if (D_Timer.notZero()) {
     D_Timer.down()
@@ -300,7 +331,7 @@ function executeOpcode (opcode) {
   PC.nextOpcode()
 
   switch (three) {
-    case: 0:
+    case 0:
       if (o.v == 0x00E0) {
         // clears the screen
       } else if (o.v == 0x00EE) {
@@ -310,35 +341,35 @@ function executeOpcode (opcode) {
         PC.assign(nnn)
       }
       break
-    case: 1:
+    case 1:
       PC.assign(nnn)
       break
-    case: 2:
+    case 2:
       PC.store()
       PC.assign(nnn)
       break
-    case: 3:
+    case 3:
       if (V[x].eq(nn)) {
         PC.nextOpcode()
       }
       break
-    case: 4:
+    case 4:
       if (! V[x].eq(nn)) {
         PC.nextOpcode()
       }
       break
-    case: 5:
+    case 5:
       if (V[x].eq(V[y])) {
         PC.nextOpcode()
       }
       break
-    case: 6:
+    case 6:
       V[x].assign(nn)
       break
-    case: 7:
+    case 7:
       V[x].add(nn)
       break
-    case: 8:
+    case 8:
       switch(zero) {
         case 0:
           V[x].assign(V[y])
@@ -390,7 +421,7 @@ function executeOpcode (opcode) {
           throw new Error('Unknow opcode: ' + o.v)
       }
       break
-    case: 9:
+    case 9:
       if (!V[x].eq(V[y])) {
         PC.nextOpcode()
       }
@@ -409,9 +440,13 @@ function executeOpcode (opcode) {
       break
     case 0xE:
       if (nn === 0x9E) {
-        // skips the next instruction if the key stored in VX is pressed (usually the next instruction is a jump to skip a code block)
+        if (KEY.curKey === V[x].v) {
+          PC.nextOpcode()
+        }
       } else if (nn === 0xA1) {
-        // skips the next instruction if the key stored in VX isn't pressed (usually the next instruction is a jump to skip a code block)
+        if (KEY.curKey !== V[x].v) {
+          PC.nextOpcode()
+        }
       }
       break
     case 0xF:
@@ -422,6 +457,9 @@ function executeOpcode (opcode) {
           break
         case 0x0A:
           // a key press is awaited, and then stored in VX (blocking operation. all instruction halted until next key event)
+
+          // Waiting...
+          V[x].assign(KEY.curKey)
           break
         case 0x15:
           D_Timer.assign(V[x].v)
